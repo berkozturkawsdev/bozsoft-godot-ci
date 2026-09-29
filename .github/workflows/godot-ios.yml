@@ -1087,32 +1087,43 @@ jobs:
             PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_IDENTIFIER" \
             archive
       # =========================================================
+      # =========================================================
       # 22. Create ExportOptions.plist
       # =========================================================
       - name: Create ExportOptions.plist
+        shell: bash
         env:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          cat > "$RUNNER_TEMP/ExportOptions.plist" <\<PLIST
-          \<?xml version="1.0" encoding="UTF-8"?>
-          \<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
-          "http\://www\.apple.com/DTDs/PropertyList-1.0.dtd">
-          \<plist version="1.0">
-          \<dict>
-              \<key>method\</key>
-              \<string>app-store\</string>
-              \<key>signingStyle\</key>
-              \<string>manual\</string>
-              \<key>teamID\</key>
-              \<string>${APPLE_TEAM_ID}\</string>
-              \<key>provisioningProfiles\</key>
-              \<dict>
-                  \<key>${BUNDLE_IDENTIFIER}\</key>
-                  \<string>${PROFILE_NAME}\</string>
-              \</dict>
-          \</dict>
-          \</plist>
-          PLIST
+          set -euo pipefail
+
+          EXPORT_OPTIONS="$RUNNER_TEMP/ExportOptions.plist"
+          export EXPORT_OPTIONS APPLE_TEAM_ID BUNDLE_IDENTIFIER PROFILE_NAME
+
+          python3 <<'PYXML'
+          import os
+          import plistlib
+          from pathlib import Path
+
+          output = Path(os.environ["EXPORT_OPTIONS"])
+          data = {
+              "method": "app-store",
+              "signingStyle": "manual",
+              "teamID": os.environ["APPLE_TEAM_ID"],
+              "provisioningProfiles": {
+                  os.environ["BUNDLE_IDENTIFIER"]: os.environ["PROFILE_NAME"]
+              },
+          }
+
+          with output.open("wb") as handle:
+              plistlib.dump(data, handle, fmt=plistlib.FMT_XML, sort_keys=False)
+
+          print(f"Created {output}")
+          PYXML
+
+          plutil -lint "$EXPORT_OPTIONS"
+          echo "ExportOptions.plist created successfully."
+
       # =========================================================
       # 23. Export IPA
       # =========================================================
