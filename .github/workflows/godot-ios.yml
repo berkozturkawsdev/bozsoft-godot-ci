@@ -1,0 +1,2015 @@
+name: Reusable Godot iOS Build and Upload
+
+on:
+  workflow_call:
+    inputs:
+      app_name:
+        description: "Human-readable app name"
+        required: true
+        type: string
+
+      bundle_identifier:
+        description: "iOS bundle identifier"
+        required: true
+        type: string
+
+      godot_version:
+        description: "Godot version"
+        required: false
+        type: string
+        default: "4.6.1"
+
+      godot_preset:
+        description: "Godot iOS export preset name"
+        required: false
+        type: string
+        default: "iOS"
+
+      artifact_name:
+        description: "Uploaded GitHub artifact name"
+        required: false
+        type: string
+        default: "Godot-iOS"
+
+      game_center:
+        description: "Enable the custom Game Center integration"
+        required: false
+        type: boolean
+        default: true
+
+      game_center_source:
+        description: "Path in the game repository to the custom game_center.mm"
+        required: false
+        type: string
+        default: "native/gamecenter-source/plugins/gamecenter/game_center.mm"
+
+    secrets:
+      APPLE_TEAM_ID:
+        required: true
+      APPLE_CERTIFICATE_BASE64:
+        required: true
+      APPLE_CERTIFICATE_PASSWORD:
+        required: true
+      APPLE_PROVISIONING_PROFILE_BASE64:
+        required: true
+      APPSTORE_ISSUER_ID:
+        required: true
+      APPSTORE_KEY_ID:
+        required: true
+      APPSTORE_PRIVATE_KEY_BASE64:
+        required: true
+
+jobs:
+  build-ios:
+    runs-on: macos-26
+
+    env:
+      GODOT_VERSION: ${{ inputs.godot_version }}
+      GODOT_PRESET: ${{ inputs.godot_preset }}
+      BUNDLE_IDENTIFIER: ${{ inputs.bundle_identifier }}
+      APP_NAME: ${{ inputs.app_name }}
+      ARTIFACT_NAME: ${{ inputs.artifact_name }}
+      GAME_CENTER_SOURCE: ${{ inputs.game_center_source }}
+
+    steps:
+
+      # =========================================================
+
+      # 1. Checkout
+
+      # =========================================================
+
+      - name: Checkout repository
+
+        uses: actions/checkout@v4
+
+      # =========================================================
+
+      # 2. Validate required secrets
+
+      # =========================================================
+
+      - name: Validate configuration
+
+        env:
+
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+
+          APPLE_PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_PROVISIONING_PROFILE_BASE64 }}
+
+          APPSTORE_ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
+
+          APPSTORE_KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
+
+          APPSTORE_PRIVATE_KEY_BASE64: ${{ secrets.APPSTORE_PRIVATE_KEY_BASE64 }}
+
+        run: |
+
+          if [ -z "$APPLE_TEAM_ID" ]; then
+
+            echo "ERROR: APPLE_TEAM_ID is missing."
+
+            exit 1
+
+          fi
+
+          if [ -z "$APPLE_CERTIFICATE_BASE64" ]; then
+
+            echo "ERROR: APPLE_CERTIFICATE_BASE64 is missing."
+
+            exit 1
+
+          fi
+
+          if [ -z "$APPLE_CERTIFICATE_PASSWORD" ]; then
+
+            echo "ERROR: APPLE_CERTIFICATE_PASSWORD is missing."
+
+            exit 1
+
+          fi
+
+          if [ -z "$APPLE_PROVISIONING_PROFILE_BASE64" ]; then
+
+            echo "ERROR: APPLE_PROVISIONING_PROFILE_BASE64 is missing."
+
+            exit 1
+
+          fi
+
+          if [ -z "$APPSTORE_ISSUER_ID" ]; then
+
+            echo "ERROR: APPSTORE_ISSUER_ID is missing."
+
+            exit 1
+
+          fi
+
+          if [ -z "$APPSTORE_KEY_ID" ]; then
+
+            echo "ERROR: APPSTORE_KEY_ID is missing."
+
+            exit 1
+
+          fi
+
+          if [ -z "$APPSTORE_PRIVATE_KEY_BASE64" ]; then
+
+            echo "ERROR: APPSTORE_PRIVATE_KEY_BASE64 is missing."
+
+            exit 1
+
+          fi
+
+          echo "Configuration looks good."
+
+          echo "Bundle ID: $BUNDLE_IDENTIFIER"
+
+      # =========================================================
+
+      # 3. Download Godot
+
+      # =========================================================
+
+      - name: Download Godot
+
+        run: |
+
+          mkdir -p "$RUNNER_TEMP/godot"
+
+          curl -L \\
+
+            "https\://downloads.godotengine.org/?flavor=stable&platform=macos.universal&slug=macos.universal.zip&version=$GODOT_VERSION" \\
+
+            -o "$RUNNER_TEMP/godot/Godot.zip"
+
+          unzip -q \\
+
+            "$RUNNER_TEMP/godot/Godot.zip" \\
+
+            -d "$RUNNER_TEMP/godot"
+
+          GODOT_APP=$(find "$RUNNER_TEMP/godot" \\
+
+            -maxdepth 3 \\
+
+            -type d \\
+
+            -name "Godot.app" \\
+
+            -print \\
+
+            -quit)
+
+          if [ -z "$GODOT_APP" ]; then
+
+            echo "ERROR: Godot.app not found."
+
+            exit 1
+
+          fi
+
+          echo "GODOT_APP=$GODOT_APP" >> "$GITHUB_ENV"
+
+      # =========================================================
+
+      # 4. Verify Godot
+
+      # =========================================================
+
+      - name: Verify Godot
+
+        run: |
+
+          "$GODOT_APP/Contents/MacOS/Godot" --version
+
+      # =========================================================
+
+      # 5. Install Godot iOS templates
+
+      # =========================================================
+
+      - name: Install Godot iOS templates
+
+        run: |
+
+          TEMPLATE_DIR="$HOME/Library/Application Support/Godot/export_templates/$GODOT_VERSION.stable"
+
+          mkdir -p "$TEMPLATE_DIR"
+
+          mkdir -p "$RUNNER_TEMP/templates"
+
+          curl -L \\
+
+            "https\://downloads.godotengine.org/?flavor=stable&platform=templates&slug=export_templates.tpz&version=$GODOT_VERSION" \\
+
+            -o "$RUNNER_TEMP/templates/export_templates.tpz"
+
+          unzip -q \\
+
+            "$RUNNER_TEMP/templates/export_templates.tpz" \\
+
+            -d "$RUNNER_TEMP/templates/extracted"
+
+          IOS_TEMPLATE=$(find \\
+
+            "$RUNNER_TEMP/templates/extracted" \\
+
+            -type f \\
+
+            -name "ios.zip" \\
+
+            -print \\
+
+            -quit)
+
+          if [ -z "$IOS_TEMPLATE" ]; then
+
+            echo "ERROR: iOS template not found."
+
+            exit 1
+
+          fi
+
+          cp \\
+
+            "$IOS_TEMPLATE" \\
+
+            "$TEMPLATE_DIR/ios.zip"
+
+      # =========================================================
+
+      # 6. Check Xcode
+
+      # =========================================================
+
+      - name: Check Xcode
+
+        run: |
+
+          xcodebuild -version
+
+          xcode-select -p
+
+      # =========================================================
+      # 7. Restore cached Game Center plugin
+      # =========================================================
+      - name: Restore Game Center plugin cache
+        if: ${{ inputs.game_center }}
+        id: gamecenter-cache
+        uses: actions/cache@v4
+        with:
+          path: ios/plugins/gamecenter
+          key: gamecenter-${{ runner.os }}-${{ env.GODOT_VERSION }}-scene-fix-58c7b860-${{ hashFiles(inputs.game_center_source) }}
+
+      # =========================================================
+      # 8. Build Game Center plugin only on cache miss
+      # =========================================================
+      - name: Build Game Center plugin
+        if: ${{ inputs.game_center && steps.gamecenter-cache.outputs.cache-hit != 'true' }}
+        run: |
+          set -euo pipefail
+
+          echo "Game Center cache MISS."
+          echo "Building custom Game Center plugin..."
+
+          echo "Installing SCons in an isolated virtual environment..."
+
+          python3 -m venv "$RUNNER_TEMP/scons-venv"
+          source "$RUNNER_TEMP/scons-venv/bin/activate"
+
+          python -m pip install --upgrade pip
+          python -m pip install scons
+
+          echo "SCons version:"
+          scons --version
+
+          echo ""
+          echo "Cloning Godot iOS plugins..."
+
+          git clone --recursive \
+            https://github.com/godot-sdk-integrations/godot-ios-plugins.git \
+            "$RUNNER_TEMP/godot-ios-plugins"
+
+          cd "$RUNNER_TEMP/godot-ios-plugins"
+
+          echo ""
+          echo "Applying upstream Game Center UIWindowScene fix..."
+
+          git fetch origin \
+            pull/100/head:gamecenter-scene-fix
+
+          git cherry-pick \
+            58c7b86054d9fe2eb7c7a0095153df8db64096aa
+
+          echo ""
+          echo "Game Center scene fix commit:"
+          git log -1 --oneline
+
+          GAMECENTER_SOURCE="plugins/gamecenter/game_center.mm"
+
+          echo ""
+          echo "Installing custom Game Center score-submission source..."
+
+          cp \
+            "$GITHUB_WORKSPACE/$GAME_CENTER_SOURCE" \
+            "$GAMECENTER_SOURCE"
+
+          if [ ! -f "$GAMECENTER_SOURCE" ]; then
+            echo "ERROR: Game Center source file not found."
+            exit 1
+          fi
+
+          if ! grep -Fq \
+            '![GKScore respondsToSelector:@selector(reportScores:withCompletionHandler:)]' \
+            "$GAMECENTER_SOURCE"; then
+            echo "ERROR: Score-submission fix is missing."
+            exit 1
+          fi
+
+          if ! grep -q "connectedScenes" "$GAMECENTER_SOURCE"; then
+            echo "ERROR: UIWindowScene connectedScenes fix is missing."
+            exit 1
+          fi
+
+          if ! grep -q "UIWindowScene" "$GAMECENTER_SOURCE"; then
+            echo "ERROR: UIWindowScene handling is missing."
+            exit 1
+          fi
+
+          echo "Custom Game Center source verified."
+
+          echo ""
+          echo "Switching embedded Godot source to $GODOT_VERSION-stable..."
+
+          git -C godot fetch --tags
+          git -C godot checkout "$GODOT_VERSION-stable"
+
+          echo ""
+          echo "Generating Godot iOS headers..."
+
+          scons \
+            -C godot \
+            platform=ios \
+            target=editor \
+            -j2
+
+          chmod +x scripts/generate_xcframework.sh
+
+          echo ""
+          echo "Building Game Center release XCFramework..."
+
+          ./scripts/generate_xcframework.sh \
+            gamecenter \
+            release \
+            4.0
+
+          echo ""
+          echo "Building Game Center release_debug XCFramework..."
+
+          ./scripts/generate_xcframework.sh \
+            gamecenter \
+            release_debug \
+            4.0
+
+          if [ ! -d "bin/gamecenter.release.xcframework" ]; then
+            echo "ERROR: gamecenter.release.xcframework was not generated."
+            exit 1
+          fi
+
+          if [ ! -d "bin/gamecenter.release_debug.xcframework" ]; then
+            echo "ERROR: gamecenter.release_debug.xcframework was not generated."
+            exit 1
+          fi
+
+          PLUGIN_DEST="$GITHUB_WORKSPACE/ios/plugins/gamecenter"
+
+          echo ""
+          echo "Installing Game Center plugin into:"
+          echo "$PLUGIN_DEST"
+
+          mkdir -p "$PLUGIN_DEST"
+
+          rm -rf \
+            "$PLUGIN_DEST/gamecenter.xcframework" \
+            "$PLUGIN_DEST/gamecenter.release.xcframework" \
+            "$PLUGIN_DEST/gamecenter.release_debug.xcframework" \
+            "$PLUGIN_DEST/gamecenter.debug.xcframework"
+
+          cp \
+            "plugins/gamecenter/gamecenter.gdip" \
+            "$PLUGIN_DEST/gamecenter.gdip"
+
+          cp -R \
+            "bin/gamecenter.release.xcframework" \
+            "$PLUGIN_DEST/gamecenter.release.xcframework"
+
+          cp -R \
+            "bin/gamecenter.release_debug.xcframework" \
+            "$PLUGIN_DEST/gamecenter.debug.xcframework"
+
+          echo ""
+          echo "Game Center plugin built and installed successfully."
+
+      # =========================================================
+      # 8A. Verify Game Center plugin
+      # =========================================================
+      - name: Verify Game Center plugin
+        if: ${{ inputs.game_center }}
+        run: |
+          set -euo pipefail
+
+          PLUGIN_DEST="ios/plugins/gamecenter"
+
+          echo "Game Center cache hit: ${{ steps.gamecenter-cache.outputs.cache-hit }}"
+          echo ""
+          echo "Verifying Game Center plugin..."
+
+          if [ ! -f "$PLUGIN_DEST/gamecenter.gdip" ]; then
+            echo "ERROR: gamecenter.gdip is missing."
+            exit 1
+          fi
+
+          if [ ! -d "$PLUGIN_DEST/gamecenter.release.xcframework" ]; then
+            echo "ERROR: release Game Center XCFramework is missing."
+            exit 1
+          fi
+
+          if [ ! -d "$PLUGIN_DEST/gamecenter.debug.xcframework" ]; then
+            echo "ERROR: debug Game Center XCFramework is missing."
+            exit 1
+          fi
+
+          echo "Installed Game Center plugin files:"
+          find "$PLUGIN_DEST" \
+            -maxdepth 3 \
+            -print
+
+          echo ""
+          echo "Game Center plugin ready."
+
+      # =========================================================
+
+      # 9. Enable Game Center in iOS export preset
+
+      # =========================================================
+
+      - name: Enable Game Center in iOS export preset
+
+        run: |
+
+          python3 <<'PY'
+
+          from pathlib import Path
+
+          import re
+
+          path = Path("export_presets.cfg")
+
+          if not path.exists():
+
+              raise RuntimeError("export_presets.cfg not found.")
+
+          text = path.read_text()
+
+          preset_match = re.search(
+
+              r'^\\[preset\\.(\d+)\\]\s\*$(.\*?)(?=^\\[preset\\.|\Z)',
+
+              text,
+
+              re.M | re.S
+
+          )
+
+          ios_index = None
+
+          for match in re.finditer(
+
+              r'^\\[preset\\.(\d+)\\]\s\*$(.\*?)(?=^\\[preset\\.|\Z)',
+
+              text,
+
+              re.M | re.S
+
+          ):
+
+              block = match.group(2)
+
+              if re.search(r'^name="iOS"\s\*$', block, re.M):
+
+                  ios_index = match.group(1)
+
+                  break
+
+          if ios_index is None:
+
+              raise RuntimeError("iOS export preset not found.")
+
+          options_header = f"[preset.{ios_index}.options]"
+
+          if options_header not in text:
+
+              raise RuntimeError(
+
+                  f"{options_header} not found."
+
+              )
+
+          start = text.index(options_header)
+
+          next_section = re.search(
+
+              r'^\\[preset\\.\d+\\]',
+
+              text[start + len(options_header):],
+
+              re.M
+
+          )
+
+          if next_section:
+
+              end = (
+
+                  start
+
+                  + len(options_header)
+
+                  + next_section.start()
+
+              )
+
+          else:
+
+              end = len(text)
+
+          block = text[start:end]
+
+          def set_option(block_text: str, key: str, value: str) -> str:
+
+              pattern = rf'^{re.escape(key)}=.\*$'
+
+              if re.search(pattern, block_text, re.M):
+
+                  return re.sub(
+
+                      pattern,
+
+                      f"{key}={value}",
+
+                      block_text,
+
+                      count=1,
+
+                      flags=re.M
+
+                  )
+
+              if not block_text.endswith("\n"):
+
+                  block_text += "\n"
+
+              return block_text + f"{key}={value}\n"
+
+          block = set_option(
+
+              block,
+
+              "plugins/GameCenter",
+
+              "true"
+
+          )
+
+          block = set_option(
+
+              block,
+
+              "entitlements/game_center",
+
+              "true"
+
+          )
+
+          block = set_option(
+
+              block,
+
+              "application/bundle_identifier",
+
+              f'"{__import__("os").environ["BUNDLE_IDENTIFIER"]}"'
+
+          )
+
+          text = text[:start] + block + text[end:]
+
+          path.write_text(text)
+
+          print(f"Updated iOS preset {ios_index}:")
+
+          print("plugins/GameCenter=true")
+
+          print("entitlements/game_center=true")
+
+          PY
+
+          echo ""
+
+          echo "Verifying Game Center export options..."
+
+          grep -n \\
+
+            -E 'plugins/GameCenter|entitlements/game_center' \\
+
+            export_presets.cfg
+
+      # =========================================================
+
+      # 10. Import Godot project
+
+      # =========================================================
+
+      - name: Import Godot project
+
+        run: |
+
+          "$GODOT_APP/Contents/MacOS/Godot" \\
+
+            --headless \\
+
+            --path . \\
+
+            --editor \\
+
+            --quit
+
+      # =========================================================
+
+      # 8. Export Godot iOS project
+
+      # =========================================================
+
+      - name: Export Godot iOS project
+
+        run: |
+
+          if ! grep -Fq "name=\\"$GODOT_PRESET\\"" export_presets.cfg; then
+
+            echo "ERROR: iOS export preset '$GODOT_PRESET' not found."
+
+            exit 1
+
+          fi
+
+          rm -rf build
+
+          mkdir -p build
+
+          "$GODOT_APP/Contents/MacOS/Godot" \\
+
+            --headless \\
+
+            --path . \\
+
+            --export-release "$GODOT_PRESET" \\
+
+            build/ios
+
+          echo "Godot export completed."
+
+      # =========================================================
+
+      # Verify exported Game Center integration
+
+      # =========================================================
+
+      - name: Verify exported Game Center integration
+
+        run: |
+
+          echo "Checking exported project for Game Center..."
+
+          if ! grep -R -q             "com.apple.developer.game-center"             build             --include="\*.entitlements"; then
+
+            echo "ERROR: Game Center entitlement was not exported."
+
+            find build -name "\*.entitlements" -type f -print -exec cat {} \\;
+
+            exit 1
+
+          fi
+
+          if ! grep -R -q             "GameKit.framework"             build             --include="project.pbxproj"; then
+
+            echo "ERROR: GameKit.framework was not linked into the Xcode project."
+
+            exit 1
+
+          fi
+
+          echo "Game Center entitlement found."
+
+          echo "GameKit.framework linkage found."
+
+      # =========================================================
+
+      # Verify AdMob SPM package
+
+      # =========================================================
+
+      - name: Verify AdMob SPM package
+
+        run: |
+
+          if [ ! -f "build/admob_spm/Package.swift" ]; then
+
+            echo "ERROR: build/admob_spm/Package.swift not found."
+
+            find build -maxdepth 6 -print
+
+            exit 1
+
+          fi
+
+          echo "AdMob SPM package found."
+
+          cat build/admob_spm/Package.swift
+
+      # =========================================================
+
+      # 10. Find Xcode project
+
+      # =========================================================
+
+      - name: Find Xcode project
+
+        id: xcode-project
+
+        run: |
+
+          PROJECT=$(find build \\
+
+            -name "\*.xcodeproj" \\
+
+            -type d \\
+
+            -print \\
+
+            -quit)
+
+          if [ -z "$PROJECT" ]; then
+
+            echo "ERROR: Xcode project not found."
+
+            find build -maxdepth 10 -print
+
+            exit 1
+
+          fi
+
+          echo "Found Xcode project:"
+
+          echo "$PROJECT"
+
+          echo "project=$PROJECT" >> "$GITHUB_OUTPUT"
+
+      # =========================================================
+
+      # 11. Find Xcode scheme
+
+      # =========================================================
+
+      - name: Find Xcode scheme
+
+        id: xcode-scheme
+
+        run: |
+
+          SCHEME_FILE=$(find build \\
+
+            -path "\*/xcshareddata/xcschemes/\*.xcscheme" \\
+
+            -type f \\
+
+            -print \\
+
+            -quit)
+
+          if [ -z "$SCHEME_FILE" ]; then
+
+            echo "ERROR: Xcode scheme not found."
+
+            exit 1
+
+          fi
+
+          SCHEME=$(basename "$SCHEME_FILE" .xcscheme)
+
+          echo "Found scheme:"
+
+          echo "$SCHEME"
+
+          echo "scheme=$SCHEME" >> "$GITHUB_OUTPUT"
+
+      # =========================================================
+
+      # 12. Fix AdMob Swift Package integration
+
+      # =========================================================
+
+      - name: Fix AdMob Swift Package integration
+
+        run: |
+
+          PROJECT_FILE="${{ steps.xcode-project.outputs.project }}/project.pbxproj"
+
+          if [ ! -f "$PROJECT_FILE" ]; then
+
+            echo "ERROR: project.pbxproj not found."
+
+            exit 1
+
+          fi
+
+          if [ ! -f "build/admob_spm/Package.swift" ]; then
+
+            echo "ERROR: AdMob Package.swift not found."
+
+            exit 1
+
+          fi
+
+          python3 <<'PY'
+
+          from pathlib import Path
+
+          import re
+
+          path = Path("build/ios.xcodeproj/project.pbxproj")
+
+          if not path.exists():
+
+              raise RuntimeError(
+
+                  f"Xcode project not found: {path}"
+
+              )
+
+          text = path.read_text()
+
+          LOCAL_REF_ID = "AD0000000000000000000001"
+
+          PRODUCT_DEP_ID = "AD0000000000000000000002"
+
+          BUILD_FILE_ID = "AD0000000000000000000003"
+
+          # Do not patch twice.
+
+          if LOCAL_REF_ID in text:
+
+              print("AdMob SPM integration already exists.")
+
+              raise SystemExit(0)
+
+          # -----------------------------------------------------
+
+          # Add PBXBuildFile
+
+          # -----------------------------------------------------
+
+          marker = "/\* Begin PBXBuildFile section \*/"
+
+          if marker not in text:
+
+              raise RuntimeError(
+
+                  "PBXBuildFile section not found."
+
+              )
+
+          build_file_entry = (
+
+              "\n\t\t"
+
+              + BUILD_FILE_ID
+
+              + " /\* PoingGodotAdMobDeps in Frameworks \*/ = {"
+
+              + "isa = PBXBuildFile; "
+
+              + "productRef = "
+
+              + PRODUCT_DEP_ID
+
+              + " /\* PoingGodotAdMobDeps \*/; "
+
+              + "};"
+
+          )
+
+          text = text.replace(
+
+              marker,
+
+              marker + build_file_entry,
+
+              1
+
+          )
+
+          # -----------------------------------------------------
+
+          # Add local Swift package
+
+          # -----------------------------------------------------
+
+          local_section = (
+
+              "\n/\* Begin XCLocalSwiftPackageReference section \*/\n"
+
+              "\t\t"
+
+              + LOCAL_REF_ID
+
+              + ' /\* XCLocalSwiftPackageReference "admob_spm" \*/ = {'
+
+              + "isa = XCLocalSwiftPackageReference; "
+
+              + 'relativePath = "admob_spm"; '
+
+              + "};\n"
+
+              "/\* End XCLocalSwiftPackageReference section \*/\n"
+
+          )
+
+          marker = "/\* Begin XCBuildConfiguration section \*/"
+
+          if marker not in text:
+
+              raise RuntimeError(
+
+                  "XCBuildConfiguration section not found."
+
+              )
+
+          text = text.replace(
+
+              marker,
+
+              local_section + "\n" + marker,
+
+              1
+
+          )
+
+          # -----------------------------------------------------
+
+          # Add Swift package product dependency
+
+          # -----------------------------------------------------
+
+          product_section = (
+
+              "\n/\* Begin XCSwiftPackageProductDependency section \*/\n"
+
+              "\t\t"
+
+              + PRODUCT_DEP_ID
+
+              + " /\* PoingGodotAdMobDeps \*/ = {"
+
+              + "isa = XCSwiftPackageProductDependency; "
+
+              + "package = "
+
+              + LOCAL_REF_ID
+
+              + ' /\* XCLocalSwiftPackageReference "admob_spm" \*/; '
+
+              + 'productName = "PoingGodotAdMobDeps"; '
+
+              + "};\n"
+
+              "/\* End XCSwiftPackageProductDependency section \*/\n"
+
+          )
+
+          text = text.replace(
+
+              marker,
+
+              product_section + "\n" + marker,
+
+              1
+
+          )
+
+          # -----------------------------------------------------
+
+          # Attach local package to PBXProject
+
+          # -----------------------------------------------------
+
+          project_match = re.search(
+
+              r'([A-F0-9]{24}) /\\\* Project object \\\*/ = \\{'
+
+              r'.\*?isa = PBXProject;'
+
+              r'.\*?\n\t\t\\};',
+
+              text,
+
+              re.S
+
+          )
+
+          if not project_match:
+
+              raise RuntimeError(
+
+                  "PBXProject object not found."
+
+              )
+
+          project_block = project_match.group(0)
+
+          if "packageReferences = (" not in project_block:
+
+              anchor = re.search(
+
+                  r'\n(\s\*)productRefGroup = ',
+
+                  project_block
+
+              )
+
+              if not anchor:
+
+                  raise RuntimeError(
+
+                      "productRefGroup not found in PBXProject."
+
+                  )
+
+              indent = anchor.group(1)
+
+              package_refs = (
+
+                  "\n"
+
+                  + indent
+
+                  + "packageReferences = (\n"
+
+                  + indent
+
+                  + "\t"
+
+                  + LOCAL_REF_ID
+
+                  + ' /\* XCLocalSwiftPackageReference "admob_spm" \*/,\n'
+
+                  + indent
+
+                  + ");"
+
+              )
+
+              insert_at = anchor.start()
+
+              project_block = (
+
+                  project_block[:insert_at]
+
+                  + package_refs
+
+                  + project_block[insert_at:]
+
+              )
+
+              text = (
+
+                  text[:project_match.start()]
+
+                  + project_block
+
+                  + text[project_match.end():]
+
+              )
+
+          # -----------------------------------------------------
+
+          # Find native target
+
+          # -----------------------------------------------------
+
+          target_match = re.search(
+
+              r'([A-F0-9]{24}) /\\\* ios \\\*/ = \\{'
+
+              r'.\*?isa = PBXNativeTarget;'
+
+              r'.\*?\n\t\t\\};',
+
+              text,
+
+              re.S
+
+          )
+
+          if not target_match:
+
+              target_match = re.search(
+
+                  r'([A-F0-9]{24}) /\\\* .\*? \\\*/ = \\{'
+
+                  r'.\*?isa = PBXNativeTarget;'
+
+                  r'.\*?\n\t\t\\};',
+
+                  text,
+
+                  re.S
+
+              )
+
+          if not target_match:
+
+              raise RuntimeError(
+
+                  "PBXNativeTarget not found."
+
+              )
+
+          target_block = target_match.group(0)
+
+          # -----------------------------------------------------
+
+          # Attach package product to target
+
+          # -----------------------------------------------------
+
+          if "packageProductDependencies = (" not in target_block:
+
+              anchor = re.search(
+
+                  r'\n(\s\*)productName = ',
+
+                  target_block
+
+              )
+
+              if not anchor:
+
+                  raise RuntimeError(
+
+                      "productName not found in PBXNativeTarget."
+
+                  )
+
+              indent = anchor.group(1)
+
+              package_products = (
+
+                  "\n"
+
+                  + indent
+
+                  + "packageProductDependencies = (\n"
+
+                  + indent
+
+                  + "\t"
+
+                  + PRODUCT_DEP_ID
+
+                  + " /\* PoingGodotAdMobDeps \*/,\n"
+
+                  + indent
+
+                  + ");"
+
+              )
+
+              insert_at = anchor.start()
+
+              target_block = (
+
+                  target_block[:insert_at]
+
+                  + package_products
+
+                  + target_block[insert_at:]
+
+              )
+
+              text = (
+
+                  text[:target_match.start()]
+
+                  + target_block
+
+                  + text[target_match.end():]
+
+              )
+
+          # -----------------------------------------------------
+
+          # Add product to Frameworks build phase
+
+          # -----------------------------------------------------
+
+          framework_matches = list(
+
+              re.finditer(
+
+                  r'([A-F0-9]{24}) /\\\* Frameworks \\\*/ = \\{'
+
+                  r'.\*?isa = PBXFrameworksBuildPhase;'
+
+                  r'.\*?\n\t\t\\};',
+
+                  text,
+
+                  re.S
+
+              )
+
+          )
+
+          if not framework_matches:
+
+              raise RuntimeError(
+
+                  "PBXFrameworksBuildPhase not found."
+
+              )
+
+          framework_match = framework_matches[0]
+
+          framework_block = framework_match.group(0)
+
+          if BUILD_FILE_ID not in framework_block:
+
+              files_match = re.search(
+
+                  r'files = \\(\n',
+
+                  framework_block
+
+              )
+
+              if not files_match:
+
+                  raise RuntimeError(
+
+                      "Frameworks files list not found."
+
+                  )
+
+              insertion = (
+
+                  "\t\t\t\t"
+
+                  + BUILD_FILE_ID
+
+                  + " /\* PoingGodotAdMobDeps in Frameworks \*/,\n"
+
+              )
+
+              pos = files_match.end()
+
+              framework_block = (
+
+                  framework_block[:pos]
+
+                  + insertion
+
+                  + framework_block[pos:]
+
+              )
+
+              text = (
+
+                  text[:framework_match.start()]
+
+                  + framework_block
+
+                  + text[framework_match.end():]
+
+              )
+
+          path.write_text(text)
+
+          print(
+
+              "AdMob Swift Package integration "
+
+              "patched successfully."
+
+          )
+
+          PY
+
+          echo ""
+
+          echo "Verifying AdMob Xcode integration..."
+
+          grep -n \\
+
+            -E "admob_spm|PoingGodotAdMobDeps|XCLocalSwiftPackageReference|XCSwiftPackageProductDependency" \\
+
+            "$PROJECT_FILE"
+
+          echo ""
+
+          echo "AdMob Xcode integration complete."
+
+      # =========================================================
+
+      # 13. Validate patched Xcode project
+
+      # =========================================================
+
+      - name: Validate patched Xcode project
+
+        run: |
+
+          plutil -lint \\
+
+            "${{ steps.xcode-project.outputs.project }}/project.pbxproj"
+
+          xcodebuild \\
+
+            -list \\
+
+            -project "${{ steps.xcode-project.outputs.project }}"
+
+      # =========================================================
+
+      # 14. Resolve Swift Package dependencies
+
+      # =========================================================
+
+      - name: Resolve Swift Package dependencies
+
+        run: |
+
+          echo "Resolving Swift packages..."
+
+          xcodebuild \\
+
+            -resolvePackageDependencies \\
+
+            -project "${{ steps.xcode-project.outputs.project }}" \\
+
+            -scheme "${{ steps.xcode-scheme.outputs.scheme }}"
+
+          echo "Package resolution completed."
+
+      # =========================================================
+
+      # 15. Verify resolved packages
+
+      # =========================================================
+
+      - name: Verify resolved Swift packages
+
+        run: |
+
+          echo "Package.resolved files:"
+
+          find build \\
+
+            -name "Package.resolved" \\
+
+            -type f \\
+
+            -print \\
+
+            -exec cat {} \\; || true
+
+          echo ""
+
+          echo "Checking Xcode package references..."
+
+          PROJECT_FILE="${{ steps.xcode-project.outputs.project }}/project.pbxproj"
+
+          grep -n \\
+
+            -E "admob_spm|PoingGodotAdMobDeps|GoogleMobileAds|GoogleUserMessagingPlatform" \\
+
+            "$PROJECT_FILE" || true
+
+      # =========================================================
+
+      # 16. Install Apple Distribution certificate
+
+      # =========================================================
+
+      - name: Install Apple Distribution certificate
+
+        env:
+
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+
+        run: |
+
+          CERT_PATH="$RUNNER_TEMP/apple_distribution.p12"
+
+          KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain-db"
+
+          KEYCHAIN_PASSWORD="spin-frenzy-keychain"
+
+          echo "$APPLE_CERTIFICATE_BASE64" | \\
+
+            base64 --decode > "$CERT_PATH"
+
+          security create-keychain \\
+
+            -p "$KEYCHAIN_PASSWORD" \\
+
+            "$KEYCHAIN_PATH"
+
+          security set-keychain-settings \\
+
+            -lut 21600 \\
+
+            "$KEYCHAIN_PATH"
+
+          security unlock-keychain \\
+
+            -p "$KEYCHAIN_PASSWORD" \\
+
+            "$KEYCHAIN_PATH"
+
+          security import \\
+
+            "$CERT_PATH" \\
+
+            -P "$APPLE_CERTIFICATE_PASSWORD" \\
+
+            -A \\
+
+            -t cert \\
+
+            -f pkcs12 \\
+
+            -k "$KEYCHAIN_PATH"
+
+          security list-keychains \\
+
+            -d user \\
+
+            -s "$KEYCHAIN_PATH"
+
+          security default-keychain \\
+
+            -s "$KEYCHAIN_PATH"
+
+          security set-key-partition-list \\
+
+            -S apple-tool:,apple: \\
+
+            -s \\
+
+            -k "$KEYCHAIN_PASSWORD" \\
+
+            "$KEYCHAIN_PATH"
+
+      # =========================================================
+
+      # 17. Verify signing identity
+
+      # =========================================================
+
+      - name: Verify signing identity
+
+        run: |
+
+          security find-identity \\
+
+            -v \\
+
+            -p codesigning
+
+      # =========================================================
+
+      # 18. Install provisioning profile
+
+      # =========================================================
+
+      - name: Install provisioning profile
+
+        env:
+
+          APPLE_PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_PROVISIONING_PROFILE_BASE64 }}
+
+        run: |
+
+          PROFILE_PATH="$RUNNER_TEMP/App.mobileprovision"
+
+          PROFILE_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
+
+          mkdir -p "$PROFILE_DIR"
+
+          echo "$APPLE_PROVISIONING_PROFILE_BASE64" | \\
+
+            base64 --decode > "$PROFILE_PATH"
+
+          security cms \\
+
+            -D \\
+
+            -i "$PROFILE_PATH" \\
+
+            > "$RUNNER_TEMP/profile.plist"
+
+          PROFILE_NAME=$(
+
+            /usr/libexec/PlistBuddy \\
+
+              -c "Print :Name" \\
+
+              "$RUNNER_TEMP/profile.plist"
+
+          )
+
+          PROFILE_UUID=$(
+
+            /usr/libexec/PlistBuddy \\
+
+              -c "Print :UUID" \\
+
+              "$RUNNER_TEMP/profile.plist"
+
+          )
+
+          PROFILE_APP_ID=$(
+
+            /usr/libexec/PlistBuddy \\
+
+              -c "Print :Entitlements:application-identifier" \\
+
+              "$RUNNER_TEMP/profile.plist"
+
+          )
+
+          echo "Profile name: $PROFILE_NAME"
+
+          echo "Profile UUID: $PROFILE_UUID"
+
+          echo "Profile application ID: $PROFILE_APP_ID"
+
+          cp \\
+
+            "$PROFILE_PATH" \\
+
+            "$PROFILE_DIR/$PROFILE_UUID.mobileprovision"
+
+          echo "PROFILE_NAME=$PROFILE_NAME" >> "$GITHUB_ENV"
+
+          echo "PROFILE_UUID=$PROFILE_UUID" >> "$GITHUB_ENV"
+
+      # =========================================================
+
+      # 19. Verify Bundle ID
+
+      # =========================================================
+
+      - name: Verify Bundle ID
+
+        run: |
+
+          PROFILE_APP_ID=$(
+
+            /usr/libexec/PlistBuddy \\
+
+              -c "Print :Entitlements:application-identifier" \\
+
+              "$RUNNER_TEMP/profile.plist"
+
+          )
+
+          if [[ "$PROFILE_APP_ID" != \*"$BUNDLE_IDENTIFIER" ]]; then
+
+            echo "ERROR: Provisioning profile does not match Bundle ID."
+
+            echo "Profile: $PROFILE_APP_ID"
+
+            echo "Expected: $BUNDLE_IDENTIFIER"
+
+            exit 1
+
+          fi
+
+          echo "Bundle ID matches."
+
+      # =========================================================
+
+      # Verify Game Center in provisioning profile
+
+      # =========================================================
+
+      - name: Verify Game Center provisioning capability
+
+        run: |
+
+          echo "Checking Game Center entitlement in provisioning profile..."
+
+          GAME_CENTER=$(
+
+            /usr/libexec/PlistBuddy               -c "Print :Entitlements:com.apple.developer.game-center"               "$RUNNER_TEMP/profile.plist"               2>/dev/null || true
+
+          )
+
+          echo "Game Center entitlement: $GAME_CENTER"
+
+          if [ "$GAME_CENTER" != "true" ]; then
+
+            echo "ERROR: Provisioning profile does not contain Game Center."
+
+            echo "Regenerate the Spin Frenzy provisioning profile after enabling Game Center"
+
+            echo "for $BUNDLE_IDENTIFIER, then update APPLE_PROVISIONING_PROFILE_BASE64."
+
+            exit 1
+
+          fi
+
+          echo "Game Center provisioning capability verified."
+
+      # =========================================================
+
+      # Configure manual signing
+
+      # =========================================================
+
+      - name: Configure manual signing
+
+        run: |
+
+          PROJECT_FILE="${{ steps.xcode-project.outputs.project }}/project.pbxproj"
+
+          python3 <\<PY
+
+          from pathlib import Path
+
+          path = Path("$PROJECT_FILE")
+
+          text = path.read_text()
+
+          text = text.replace(
+
+              "CODE_SIGN_STYLE = Automatic;",
+
+              "CODE_SIGN_STYLE = Manual;"
+
+          )
+
+          text = text.replace(
+
+              'CODE_SIGN_IDENTITY = "Apple Development";',
+
+              'CODE_SIGN_IDENTITY = "Apple Distribution";'
+
+          )
+
+          text = text.replace(
+
+              "CODE_SIGN_IDENTITY = Apple Development;",
+
+              'CODE_SIGN_IDENTITY = "Apple Distribution";'
+
+          )
+
+          path.write_text(text)
+
+          print("Manual signing configuration applied.")
+
+          PY
+
+      # =========================================================
+
+      # 21. Archive
+
+      # =========================================================
+
+      - name: Archive iOS application
+
+        env:
+
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+        run: |
+
+          echo "Bundle ID: $BUNDLE_IDENTIFIER"
+
+          echo "Team ID configured: ${APPLE_TEAM_ID:+YES}"
+
+          echo "Provisioning profile: $PROFILE_NAME"
+
+          xcodebuild \\
+
+            -project "${{ steps.xcode-project.outputs.project }}" \\
+
+            -scheme "${{ steps.xcode-scheme.outputs.scheme }}" \\
+
+            -configuration Release \\
+
+            -sdk iphoneos \\
+
+            -destination "generic/platform=iOS" \\
+
+            -archivePath "$RUNNER_TEMP/App.xcarchive" \\
+
+            -disableAutomaticPackageResolution \\
+
+            CODE_SIGN_STYLE=Manual \\
+
+            CODE_SIGN_IDENTITY="Apple Distribution" \\
+
+            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \\
+
+            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" \\
+
+            PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_IDENTIFIER" \\
+
+            archive
+
+      # =========================================================
+
+      # 22. Create ExportOptions.plist
+
+      # =========================================================
+
+      - name: Create ExportOptions.plist
+
+        env:
+
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+        run: |
+
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <\<PLIST
+
+          \<?xml version="1.0" encoding="UTF-8"?>
+
+          \<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+
+          "http\://www\.apple.com/DTDs/PropertyList-1.0.dtd">
+
+          \<plist version="1.0">
+
+          \<dict>
+
+              \<key>method\</key>
+
+              \<string>app-store\</string>
+
+              \<key>signingStyle\</key>
+
+              \<string>manual\</string>
+
+              \<key>teamID\</key>
+
+              \<string>${APPLE_TEAM_ID}\</string>
+
+              \<key>provisioningProfiles\</key>
+
+              \<dict>
+
+                  \<key>${BUNDLE_IDENTIFIER}\</key>
+
+                  \<string>${PROFILE_NAME}\</string>
+
+              \</dict>
+
+          \</dict>
+
+          \</plist>
+
+          PLIST
+
+      # =========================================================
+
+      # 23. Export IPA
+
+      # =========================================================
+
+      - name: Export IPA
+
+        run: |
+
+          rm -rf build/ipa
+
+          mkdir -p build/ipa
+
+          xcodebuild \\
+
+            -exportArchive \\
+
+            -archivePath "$RUNNER_TEMP/App.xcarchive" \\
+
+            -exportPath build/ipa \\
+
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist"
+
+          IPA=$(find build/ipa \\
+
+            -name "\*.ipa" \\
+
+            -type f \\
+
+            -print \\
+
+            -quit)
+
+          if [ -z "$IPA" ]; then
+
+            echo "ERROR: IPA was not created."
+
+            exit 1
+
+          fi
+
+          echo "IPA created:"
+
+          echo "$IPA"
+
+      # =========================================================
+
+      # 24. Install App Store Connect API key
+
+      #
+
+      # IMPORTANT:
+
+      # APPSTORE_PRIVATE_KEY_BASE64 currently contains the RAW
+
+      # contents of the Apple .p8 file.
+
+      # =========================================================
+
+      - name: Install App Store Connect API key
+
+        env:
+
+          APPSTORE_PRIVATE_KEY_BASE64: ${{ secrets.APPSTORE_PRIVATE_KEY_BASE64 }}
+
+          APPSTORE_KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
+
+        run: |
+
+          KEY_DIR="$HOME/.appstoreconnect/private_keys"
+
+          KEY_PATH="$KEY_DIR/AuthKey\_${APPSTORE_KEY_ID}.p8"
+
+          mkdir -p "$KEY_DIR"
+
+          printf '%s\n' "$APPSTORE_PRIVATE_KEY_BASE64" \\
+
+            > "$KEY_PATH"
+
+          chmod 600 "$KEY_PATH"
+
+          if [ ! -s "$KEY_PATH" ]; then
+
+            echo "ERROR: API key file is empty."
+
+            exit 1
+
+          fi
+
+          if ! grep -q -- "-----BEGIN PRIVATE KEY-----" "$KEY_PATH"; then
+
+            echo "ERROR: API key does not contain BEGIN PRIVATE KEY."
+
+            exit 1
+
+          fi
+
+          if ! grep -q -- "-----END PRIVATE KEY-----" "$KEY_PATH"; then
+
+            echo "ERROR: API key does not contain END PRIVATE KEY."
+
+            exit 1
+
+          fi
+
+          echo "App Store Connect API key installed successfully."
+
+      # =========================================================
+
+      # 25. Upload to App Store Connect
+
+      # =========================================================
+
+      - name: Upload to App Store Connect
+
+        env:
+
+          APPSTORE_ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
+
+          APPSTORE_KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
+
+        run: |
+
+          IPA=$(find build/ipa \\
+
+            -name "\*.ipa" \\
+
+            -type f \\
+
+            -print \\
+
+            -quit)
+
+          if [ -z "$IPA" ]; then
+
+            echo "ERROR: IPA not found."
+
+            exit 1
+
+          fi
+
+          echo "Uploading:"
+
+          echo "$IPA"
+
+          xcrun altool \\
+
+            --upload-app \\
+
+            --file "$IPA" \\
+
+            --type ios \\
+
+            --apiIssuer "$APPSTORE_ISSUER_ID" \\
+
+            --apiKey "$APPSTORE_KEY_ID"
+
+      # =========================================================
+
+      # 26. Upload IPA artifact
+
+      # =========================================================
+
+      - name: Upload IPA artifact
+
+        uses: actions/upload-artifact@v4
+
+        with:
+
+          name: ${{ env.ARTIFACT_NAME }}
+
+          path: build/ipa/\*.ipa
