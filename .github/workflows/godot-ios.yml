@@ -169,48 +169,32 @@ jobs:
 
           echo "Bundle ID: $BUNDLE_IDENTIFIER"
 
-      # =========================================================
-
-      # 3. Download Godot
 
       # =========================================================
-
+      # Download Godot
+      # =========================================================
       - name: Download Godot
-
         run: |
-
           mkdir -p "$RUNNER_TEMP/godot"
 
-          curl -L \\
-
-            "https\://downloads.godotengine.org/?flavor=stable&platform=macos.universal&slug=macos.universal.zip&version=$GODOT_VERSION" \\
-
+          curl -L \
+            "https://downloads.godotengine.org/?flavor=stable&platform=macos.universal&slug=macos.universal.zip&version=$GODOT_VERSION" \
             -o "$RUNNER_TEMP/godot/Godot.zip"
 
-          unzip -q \\
-
-            "$RUNNER_TEMP/godot/Godot.zip" \\
-
+          unzip -q \
+            "$RUNNER_TEMP/godot/Godot.zip" \
             -d "$RUNNER_TEMP/godot"
 
-          GODOT_APP=$(find "$RUNNER_TEMP/godot" \\
-
-            -maxdepth 3 \\
-
-            -type d \\
-
-            -name "Godot.app" \\
-
-            -print \\
-
+          GODOT_APP=$(find "$RUNNER_TEMP/godot" \
+            -maxdepth 3 \
+            -type d \
+            -name "Godot.app" \
+            -print \
             -quit)
 
           if [ -z "$GODOT_APP" ]; then
-
             echo "ERROR: Godot.app not found."
-
             exit 1
-
           fi
 
           echo "GODOT_APP=$GODOT_APP" >> "$GITHUB_ENV"
@@ -228,57 +212,37 @@ jobs:
           "$GODOT_APP/Contents/MacOS/Godot" --version
 
       # =========================================================
-
-      # 5. Install Godot iOS templates
-
+      # Install Godot iOS templates
       # =========================================================
-
       - name: Install Godot iOS templates
-
         run: |
-
           TEMPLATE_DIR="$HOME/Library/Application Support/Godot/export_templates/$GODOT_VERSION.stable"
 
           mkdir -p "$TEMPLATE_DIR"
-
           mkdir -p "$RUNNER_TEMP/templates"
 
-          curl -L \\
-
-            "https\://downloads.godotengine.org/?flavor=stable&platform=templates&slug=export_templates.tpz&version=$GODOT_VERSION" \\
-
+          curl -L \
+            "https://downloads.godotengine.org/?flavor=stable&platform=templates&slug=export_templates.tpz&version=$GODOT_VERSION" \
             -o "$RUNNER_TEMP/templates/export_templates.tpz"
 
-          unzip -q \\
-
-            "$RUNNER_TEMP/templates/export_templates.tpz" \\
-
+          unzip -q \
+            "$RUNNER_TEMP/templates/export_templates.tpz" \
             -d "$RUNNER_TEMP/templates/extracted"
 
-          IOS_TEMPLATE=$(find \\
-
-            "$RUNNER_TEMP/templates/extracted" \\
-
-            -type f \\
-
-            -name "ios.zip" \\
-
-            -print \\
-
+          IOS_TEMPLATE=$(find \
+            "$RUNNER_TEMP/templates/extracted" \
+            -type f \
+            -name "ios.zip" \
+            -print \
             -quit)
 
           if [ -z "$IOS_TEMPLATE" ]; then
-
             echo "ERROR: iOS template not found."
-
             exit 1
-
           fi
 
-          cp \\
-
-            "$IOS_TEMPLATE" \\
-
+          cp \
+            "$IOS_TEMPLATE" \
             "$TEMPLATE_DIR/ios.zip"
 
       # =========================================================
