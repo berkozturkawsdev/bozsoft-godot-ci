@@ -1155,28 +1155,47 @@ jobs:
       # contents of the Apple .p8 file.
       # =========================================================
       - name: Install App Store Connect API key
+        shell: bash
         env:
           APPSTORE_PRIVATE_KEY_BASE64: ${{ secrets.APPSTORE_PRIVATE_KEY_BASE64 }}
           APPSTORE_KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
         run: |
+          set -euo pipefail
+
           KEY_DIR="$HOME/.appstoreconnect/private_keys"
-          KEY_PATH="$KEY_DIR/AuthKey\_${APPSTORE_KEY_ID}.p8"
+          KEY_PATH="$KEY_DIR/AuthKey_${APPSTORE_KEY_ID}.p8"
+
           mkdir -p "$KEY_DIR"
-          printf '%s\n' "$APPSTORE_PRIVATE_KEY_BASE64" \
-            > "$KEY_PATH"*
-          chmod 600 "$KEY_PATH"
+
+          if [ -z "$APPSTORE_PRIVATE_KEY_BASE64" ]; then
+            echo "ERROR: APPSTORE_PRIVATE_KEY_BASE64 is empty."
+            exit 1
+          fi
+
+          if [ -z "$APPSTORE_KEY_ID" ]; then
+            echo "ERROR: APPSTORE_KEY_ID is empty."
+            exit 1
+          fi
+
+          printf '%s\n' "$APPSTORE_PRIVATE_KEY_BASE64" > "$KEY_PATH"
+
           if [ ! -s "$KEY_PATH" ]; then
             echo "ERROR: API key file is empty."
             exit 1
           fi
-          if ! grep -q -- "-----BEGIN PRIVATE KEY-----" "$KEY_PATH"; then
+
+          chmod 600 "$KEY_PATH"
+
+          if ! grep -Fq -- "-----BEGIN PRIVATE KEY-----" "$KEY_PATH"; then
             echo "ERROR: API key does not contain BEGIN PRIVATE KEY."
             exit 1
           fi
-          if ! grep -q -- "-----END PRIVATE KEY-----" "$KEY_PATH"; then
+
+          if ! grep -Fq -- "-----END PRIVATE KEY-----" "$KEY_PATH"; then
             echo "ERROR: API key does not contain END PRIVATE KEY."
             exit 1
           fi
+
           echo "App Store Connect API key installed successfully."
       # =========================================================
       # 25. Upload to App Store Connect
