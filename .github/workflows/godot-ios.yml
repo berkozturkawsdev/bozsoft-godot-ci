@@ -362,7 +362,7 @@ jobs:
               index = match.group(1)
               block = match.group(2)
               if re.search(
-                  r'^name="iOS"\s*$',
+                  rf'^name="{re.escape(os.environ.get("GODOT_PRESET", "iOS"))}"\s*$',
                   block,
                   re.MULTILINE
               ):
@@ -370,7 +370,7 @@ jobs:
                   break
           if ios_index is None:
               raise RuntimeError(
-                  'iOS export preset named "iOS" not found.'
+                  f'iOS export preset named "{os.environ.get("GODOT_PRESET", "iOS")}" not found.'
               )
           print(
               f"Found iOS export preset: {ios_index}"
@@ -444,10 +444,17 @@ jobs:
           # ============================================================
           # ENABLE GAME CENTER PLUGIN
           # ============================================================
+          game_center_enabled = os.environ.get(
+              "GAME_CENTER_ENABLED", "false"
+          ).strip().lower()
+          if game_center_enabled not in ("true", "false"):
+              raise RuntimeError(
+                  f"Invalid GAME_CENTER_ENABLED: {game_center_enabled}"
+              )
           block = set_option(
               block,
               "plugins/GameCenter",
-              "true"
+              game_center_enabled
           )
           # ============================================================
           # ENABLE GAME CENTER ENTITLEMENT
@@ -455,7 +462,7 @@ jobs:
           block = set_option(
               block,
               "entitlements/game_center",
-              "true"
+              game_center_enabled
           )
           # ============================================================
           # SET BUNDLE IDENTIFIER
@@ -491,8 +498,8 @@ jobs:
               encoding="utf-8"
           )
           expected_values = [
-              f'plugins/GameCenter={os.environ.get("GAME_CENTER_ENABLED", "false").lower()}',
-              f'entitlements/game_center={os.environ.get("GAME_CENTER_ENABLED", "false").lower()}',
+              f'plugins/GameCenter={game_center_enabled}',
+              f'entitlements/game_center={game_center_enabled}',
               f'application/bundle_identifier="{bundle_identifier}"'
           ]
           for expected in expected_values:
@@ -510,10 +517,10 @@ jobs:
               f'application/bundle_identifier="{bundle_identifier}"'
           )
           print(
-              "plugins/GameCenter=true"
+              f"plugins/GameCenter={game_center_enabled}"
           )
           print(
-              "entitlements/game_center=true"
+              f"entitlements/game_center={game_center_enabled}"
           )
           PY
           echo ""
