@@ -20,11 +20,6 @@ on:
         required: false
         type: string
         default: "iOS"
-      artifact_name:
-        description: "Uploaded GitHub artifact name"
-        required: false
-        type: string
-        default: "Godot-iOS"
       game_center:
         description: "Enable the custom Game Center integration"
         required: false
@@ -58,7 +53,6 @@ jobs:
       GODOT_PRESET: ${{ inputs.godot_preset }}
       BUNDLE_IDENTIFIER: ${{ inputs.bundle_identifier }}
       APP_NAME: ${{ inputs.app_name }}
-      ARTIFACT_NAME: ${{ inputs.artifact_name }}
       GAME_CENTER_SOURCE: ${{ inputs.game_center_source }}
     steps:
       # =========================================================
@@ -328,8 +322,16 @@ jobs:
       # =========================================================
       # 9. Enable Game Center in iOS export preset
       # =========================================================
-      - name: Enable Game Center in iOS export preset
+      - name: Remove Game Center plugin when disabled
+        if: ${{ !inputs.game_center }}
         shell: bash
+        run: |
+          rm -rf ios/plugins/gamecenter
+          echo "Game Center plugin removed for this build."
+      - name: Configure iOS export preset (Game Center optional)
+        shell: bash
+        env:
+          GAME_CENTER_ENABLED: ${{ inputs.game_center }}
         run: |
           python3 <<'PY'
           from pathlib import Path
@@ -489,8 +491,8 @@ jobs:
               encoding="utf-8"
           )
           expected_values = [
-              'plugins/GameCenter=true',
-              'entitlements/game_center=true',
+              f'plugins/GameCenter={os.environ.get("GAME_CENTER_ENABLED", "false").lower()}',
+              f'entitlements/game_center={os.environ.get("GAME_CENTER_ENABLED", "false").lower()}',
               f'application/bundle_identifier="{bundle_identifier}"'
           ]
           for expected in expected_values:
@@ -555,6 +557,7 @@ jobs:
       # Verify exported Game Center integration
       # =========================================================
       - name: Verify exported Game Center integration
+        if: ${{ inputs.game_center }}
         run: |
           echo "Checking exported project for Game Center..."
           if ! grep -R -q             "com.apple.developer.game-center"             build             --include="*.entitlements"; then
