@@ -25,6 +25,11 @@ on:
         required: false
         type: boolean
         default: true
+      admob:
+        description: "Enable AdMob iOS plugin and Swift Package integration"
+        required: false
+        type: boolean
+        default: true
       game_center_source:
         description: "Path in the game repository to the custom game_center.mm"
         required: false
@@ -328,10 +333,21 @@ jobs:
         run: |
           rm -rf ios/plugins/gamecenter
           echo "Game Center plugin removed for this build."
+      - name: Remove AdMob iOS plugins when disabled
+        if: ${{ !inputs.admob }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -d ios/plugins ]; then
+            find ios/plugins -mindepth 1 -maxdepth 1 -iname '*admob*' -exec rm -rf -- {} +
+            find ios/plugins -mindepth 1 -maxdepth 1 -iname '*poing*' -exec rm -rf -- {} +
+          fi
+          echo "AdMob iOS plugin directories removed for this build."
       - name: Configure iOS export preset (Game Center optional)
         shell: bash
         env:
           GAME_CENTER_ENABLED: ${{ inputs.game_center }}
+          ADMOB_ENABLED: ${{ inputs.admob }}
         run: |
           python3 <<'PY'
           from pathlib import Path
@@ -465,6 +481,25 @@ jobs:
               game_center_enabled
           )
           # ============================================================
+          # CONFIGURE ADMOB PLUGIN (only keys already present)
+          # ============================================================
+          admob_enabled = os.environ.get(
+              "ADMOB_ENABLED", "false"
+          ).strip().lower()
+          if admob_enabled not in ("true", "false"):
+              raise RuntimeError(
+                  f"Invalid ADMOB_ENABLED: {admob_enabled}"
+              )
+          admob_keys = re.findall(
+              r"^(plugins/[^=\n]*(?:admob|poing)[^=\n]*)=",
+              block,
+              flags=re.MULTILINE | re.IGNORECASE
+          )
+          for key in admob_keys:
+              block = set_option(block, key, admob_enabled)
+          print(f"AdMob enabled: {admob_enabled}")
+          print(f"AdMob preset keys configured: {admob_keys}")
+          # ============================================================
           # SET BUNDLE IDENTIFIER
           # ============================================================
           bundle_identifier = os.environ.get(
@@ -582,6 +617,7 @@ jobs:
       # Verify AdMob SPM package
       # =========================================================
       - name: Verify AdMob SPM package
+        if: ${{ inputs.admob }}
         run: |
           if [ ! -f "build/admob_spm/Package.swift" ]; then
             echo "ERROR: build/admob_spm/Package.swift not found."
@@ -632,6 +668,7 @@ jobs:
       # 12. Fix AdMob Swift Package integration
       # =========================================================
       - name: Fix AdMob Swift Package integration
+        if: ${{ inputs.admob }}
         run: |
           PROJECT_FILE="${{ steps.xcode-project.outputs.project }}/project.pbxproj"
           if [ ! -f "$PROJECT_FILE" ]; then
@@ -900,6 +937,7 @@ jobs:
       # 14. Resolve Swift Package dependencies
       # =========================================================
       - name: Resolve Swift Package dependencies
+        if: ${{ inputs.admob }}
         run: |
           echo "Resolving Swift packages..."
           xcodebuild \
@@ -911,6 +949,7 @@ jobs:
       # 15. Verify resolved packages
       # =========================================================
       - name: Verify resolved Swift packages
+        if: ${{ inputs.admob }}
         run: |
           echo "Package.resolved files:"
           find build \
