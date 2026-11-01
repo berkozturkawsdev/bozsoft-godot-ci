@@ -31,8 +31,6 @@ on:
         type: boolean
         default: true
     secrets:
-      GAMECENTER_REPO_TOKEN:
-        required: false
       APPLE_TEAM_ID:
         required: true
       APPLE_CERTIFICATE_BASE64:
@@ -171,7 +169,6 @@ jobs:
         if: ${{ inputs.game_center }}
         shell: bash
         env:
-          GH_TOKEN: ${{ secrets.GAMECENTER_REPO_TOKEN }}
           PLUGIN_REPO: berkozturkawsdev/godot-ios-gamecenter
           PLUGIN_TAG: godot-4.6.1-gamecenter-v1
         run: |
@@ -181,16 +178,10 @@ jobs:
             echo "ERROR: This Game Center release is compiled for Godot 4.6.1."
             exit 1
           fi
-          if [ -z "$GH_TOKEN" ]; then
-            echo "ERROR: GAMECENTER_REPO_TOKEN is missing."
-            exit 1
-          fi
-
           mkdir -p "$RUNNER_TEMP/gamecenter-release" ios/plugins
-          gh release download "$PLUGIN_TAG" \
-            --repo "$PLUGIN_REPO" \
-            --pattern 'gamecenter-plugin.zip' \
-            --dir "$RUNNER_TEMP/gamecenter-release"
+          curl --fail --location --retry 3 \
+            --output "$RUNNER_TEMP/gamecenter-release/gamecenter-plugin.zip" \
+            "https://github.com/${PLUGIN_REPO}/releases/download/${PLUGIN_TAG}/gamecenter-plugin.zip"
 
           ZIP="$RUNNER_TEMP/gamecenter-release/gamecenter-plugin.zip"
           test -s "$ZIP"
