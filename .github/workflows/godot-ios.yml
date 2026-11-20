@@ -47,7 +47,7 @@ on:
         required: true
 jobs:
   build-ios:
-    runs-on: macos-26
+    runs-on: xcode-27
     env:
       GODOT_VERSION: ${{ inputs.godot_version }}
       GODOT_PRESET: ${{ inputs.godot_preset }}
@@ -158,30 +158,21 @@ jobs:
       # =========================================================
       # 6. Check Xcode
       # =========================================================
-      - name: Select and verify Xcode / iOS SDK
+      - name: Verify Xcode 27 and iOS SDK
         shell: bash
         run: |
           set -euo pipefail
-          # Prefer Xcode 27 when installed on the selected macOS runner.
-          # Until April 2027, older SDKs remain accepted by App Store Connect.
-          XCODE_27="$(find /Applications -maxdepth 1 -type d \
-            -name 'Xcode_27*.app' -print | sort -V | tail -n 1)"
-          if [ -n "$XCODE_27" ]; then
-            sudo xcode-select -s "$XCODE_27/Contents/Developer"
-            echo "Selected: $XCODE_27"
-          else
-            echo "WARNING: Xcode 27 is not installed on this runner."
-            echo "Using the runner's default Xcode for now."
-            echo "Before April 2027, use a runner image with Xcode 27 or later."
-          fi
+          echo "Selected Xcode:"
           xcodebuild -version
           xcode-select -p
           SDK_VERSION="$(xcrun --sdk iphoneos --show-sdk-version)"
           echo "iOS SDK: $SDK_VERSION"
           SDK_MAJOR="${SDK_VERSION%%.*}"
           if [ "$SDK_MAJOR" -lt 27 ]; then
-            echo "WARNING: iOS SDK 27+ is required for uploads starting April 2027."
+            echo "ERROR: iOS SDK 27 or later is required. Refusing to upload an outdated build."
+            exit 1
           fi
+          echo "iOS SDK 27+ verified."
       # =========================================================
       # 7. Install precompiled Game Center plugin from GitHub Release
       # =========================================================
