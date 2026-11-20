@@ -158,10 +158,30 @@ jobs:
       # =========================================================
       # 6. Check Xcode
       # =========================================================
-      - name: Check Xcode
+      - name: Select and verify Xcode / iOS SDK
+        shell: bash
         run: |
+          set -euo pipefail
+          # Prefer Xcode 27 when installed on the selected macOS runner.
+          # Until April 2027, older SDKs remain accepted by App Store Connect.
+          XCODE_27="$(find /Applications -maxdepth 1 -type d \
+            -name 'Xcode_27*.app' -print | sort -V | tail -n 1)"
+          if [ -n "$XCODE_27" ]; then
+            sudo xcode-select -s "$XCODE_27/Contents/Developer"
+            echo "Selected: $XCODE_27"
+          else
+            echo "WARNING: Xcode 27 is not installed on this runner."
+            echo "Using the runner's default Xcode for now."
+            echo "Before April 2027, use a runner image with Xcode 27 or later."
+          fi
           xcodebuild -version
           xcode-select -p
+          SDK_VERSION="$(xcrun --sdk iphoneos --show-sdk-version)"
+          echo "iOS SDK: $SDK_VERSION"
+          SDK_MAJOR="${SDK_VERSION%%.*}"
+          if [ "$SDK_MAJOR" -lt 27 ]; then
+            echo "WARNING: iOS SDK 27+ is required for uploads starting April 2027."
+          fi
       # =========================================================
       # 7. Install precompiled Game Center plugin from GitHub Release
       # =========================================================
@@ -855,7 +875,7 @@ jobs:
         run: |
           CERT_PATH="$RUNNER_TEMP/apple_distribution.p12"
           KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain-db"
-          KEYCHAIN_PASSWORD="spin-frenzy-keychain"
+          KEYCHAIN_PASSWORD="ios-build-keychain"
           echo "$APPLE_CERTIFICATE_BASE64" | \
             base64 --decode > "$CERT_PATH"
           security create-keychain \
@@ -961,7 +981,7 @@ jobs:
           echo "Game Center entitlement: $GAME_CENTER"
           if [ "$GAME_CENTER" != "true" ]; then
             echo "ERROR: Provisioning profile does not contain Game Center."
-            echo "Regenerate the Spin Frenzy provisioning profile after enabling Game Center"
+            echo "Regenerate the $APP_NAME provisioning profile after enabling Game Center"
             echo "for $BUNDLE_IDENTIFIER, then update APPLE_PROVISIONING_PROFILE_BASE64."
             exit 1
           fi
